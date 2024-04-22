@@ -1,0 +1,85 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+#define SOUND_SPEED 0.034
+#define CM_TO_INCH 0.393701
+
+long duration;
+float distanceCm;
+float distanceInch;
+
+const int trigPin = 5;
+const int echoPin = 18;
+
+const char* network_name = "your_network_name";
+const char* network_pass = "your_network_password";
+const char* broker_user = "pranav33317@gmail.com";
+const char* broker_pass = "Pranav@2004";
+const char* broker = "mqtt.dioty.co";
+const char* outTopic = "/pranav33317@gmail.com/out";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  Serial.println("Connecting to WiFi...");
+  WiFi.begin(network_name, network_pass);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  client.setServer(broker, 1883);
+  client.setCallback(callback);
+
+  while (!client.connected()) {
+    Serial.println("Connecting to MQTT broker...");
+    if (client.connect("ESP32Client", broker_user, broker_pass)) {
+      Serial.println("Connected to MQTT broker");
+      // Subscribe to a topic if needed
+      // client.subscribe("topic/to/subscribe");
+    } else {
+      Serial.print("Failed to connect to broker, rc=");
+      Serial.print(client.state());
+      Serial.println(" Trying again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void loop() {
+  client.loop();
+
+  // Read sensor data
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH);
+  distanceCm = duration * SOUND_SPEED / 2;
+  distanceInch = distanceCm * CM_TO_INCH;
+
+  // Publish sensor data to MQTT broker
+  char sensorData[10];
+  sprintf(sensorData, "%.2f", distanceInch);
+  client.publish(outTopic, sensorData);
+
+  // Wait before publishing again
+  delay(1000);
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Handle incoming messages if needed
+}
