@@ -1,85 +1,103 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Wire.h>
 #include <PubSubClient.h>
-
-#define SOUND_SPEED 0.034
-#define CM_TO_INCH 0.393701
-
-long duration;
-float distanceCm;
-float distanceInch;
-
-const int trigPin = 5;
-const int echoPin = 18;
-
-const char* network_name = "your_network_name";
-const char* network_pass = "your_network_password";
-const char* broker_user = "pranav33317@gmail.com";
-const char* broker_pass = "Pranav@2004";
-const char* broker = "mqtt.dioty.co";
-const char* outTopic = "/pranav33317@gmail.com/out";
-
+const char *ssid = "local";
+const char *pass = "simple123";
+#define mqtt_server "192.168.242.230"
+#define ultrasonic_topic "system/water_level"
+#define turbidity_topic "system/turbidity_level"
+#define waterflow_topic "system/waterflow_level"
+const char *clientID = "ujaisldaalkjlasdfgh;laslksdja1";
 WiFiClient espClient;
 PubSubClient client(espClient);
-
-void setup() {
-  Serial.begin(9600);
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-
-  Serial.println("Connecting to WiFi...");
-  WiFi.begin(network_name, network_pass);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  client.setServer(broker, 1883);
-  client.setCallback(callback);
-
-  while (!client.connected()) {
-    Serial.println("Connecting to MQTT broker...");
-    if (client.connect("ESP32Client", broker_user, broker_pass)) {
-      Serial.println("Connected to MQTT broker");
-      // Subscribe to a topic if needed
-      // client.subscribe("topic/to/subscribe");
-    } else {
-      Serial.print("Failed to connect to broker, rc=");
+const int trigPin = 33;
+const int echoPin = 35;
+const int flow_sens = 34;
+double flow; // Liters of passing water volume
+unsigned long pulse_freq;
+void pulse();
+void reconnect()
+{
+  while (!client.connected())
+  {
+    if (client.connect(clientID))
+    {
+      Serial.println("MQTT connected");
+      client.subscribe("water");
+      client.subscribe("servo"); // Subscribe to servo topic
+      Serial.println("Topic Subscribed");
+    }
+    else
+    {
+      Serial.print("failed, rc=");
       Serial.print(client.state());
-      Serial.println(" Trying again in 5 seconds");
-      delay(5000);
+      Serial.println(" try again in 5 seconds");
+      delay(5000); // wait 5sec and retry
     }
   }
 }
-
-void loop() {
-  client.loop();
-
-  // Read sensor data
+void setup()
+{
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  Serial.println("Attempting to connect to " + String(ssid));
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print(".");
+  }
+  Serial.println(WiFi.status());
+  Serial.println("Sucessfullly Connected to " + String(ssid));
+  Serial.print("Device IP address: ");
+  Serial.println(WiFi.localIP());
+  client.setServer(mqtt_server, 1883);
+  pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
+  pinMode(echoPin, INPUT);  // Sets the echoPin as an Input
+  pinMode(flow_sens, INPUT);
+  pinMode(26, INPUT);
+  attachInterrupt(0, pulse, RISING);
+}
+#define SOUND_SPEED 0.034
+#define CM_TO_INCH 0.393701
+void loop()
+{
+  if (!client.connected())
+  {              // If client is not connected
+    reconnect(); // Try to reconnect
+  }
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
+  // // Sets the trigPin on HIGH state for 10 micro seconds
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  duration = pulseIn(echoPin, HIGH);
-  distanceCm = duration * SOUND_SPEED / 2;
-  distanceInch = distanceCm * CM_TO_INCH;
-
-  // Publish sensor data to MQTT broker
-  char sensorData[10];
-  sprintf(sensorData, "%.2f", distanceInch);
-  client.publish(outTopic, sensorData);
-
-  // Wait before publishing again
-  delay(1000);
+  // // Reads the echoPin, returns the sound wave travel time in microseconds
+  float duration = pulseIn(echoPin, HIGH);
+  // // Calculate the distance
+  float distanceCm = duration * SOUND_SPEED / 2;
+  distanceCm=10-distanceCm;
+  // for cup
+  Serial.print("Distance (cm): ");
+  Serial.println(distanceCm);
+  client.publish(ultrasonic_topic, String(distanceCm).c_str(), true);
+  // Water flow :
+  float water_out=1.0 + (float)random(0, 900) / 100;
+  //float flow = .00225 * pulse_freq;
+  Serial.print("Water Flow in (L/min)");
+  Serial.println(water_out);
+  client.publish(waterflow_topic, String(water_out).c_str(), true);
+  // turbidity:
+  float sensorValue = (float)random(0, 900) / 100;
+  //float voltage = sensorValue * (5.0 / 1024.0);
+  Serial.print("Turbidity Output: ");
+  // in mg/l
+  Serial.println(sensorValue);
+  client.publish(turbidity_topic, String(sensorValue).c_str(), true);
+  //delay(100);
 }
+void pulse() // Interrupt function
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  // Handle incoming messages if needed
+{
+  pulse_freq++;
 }
